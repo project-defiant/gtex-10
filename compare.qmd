@@ -1,0 +1,278 @@
+---
+title: "GTEx comparison"
+format: html
+execute:
+  message: false
+  warning: false
+---
+
+```{r setup}
+#| echo: false
+#| message: false
+library(readr)
+library(dplyr)
+library(duckdb)
+library(googleCloudStorageR)
+library(gt)
+library(tidyr)
+library(ggplot2)
+```
+
+
+This analysis compares the [eQTL Catalogue resources](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources)
+
+The goal is to check what has changed between original release (used by the platform) and 
+newly updated data from GTEx v10.
+
+## Datasets
+
+- data_tables
+  - [original](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata.tsv)
+  - [upcomming](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata_upcoming.tsv)
+  
+  
+## Data loading
+
+The analysis loads dataset tables from the `data_tables` mentioned above.
+
+Note that *eQTL Catalogue* uses slightly different notion of a `study`, which
+corresponds to a single `pubmed id`
+
+
+```{r}
+#| echo: false
+
+file_paths <- list(
+  original = "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/refs/heads/master/data_tables/dataset_metadata.tsv", 
+  upcoming = "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/refs/heads/master/data_tables/dataset_metadata_upcoming.tsv")
+
+```
+
+```{r data-load}
+#| echo: false
+#| message: false
+#| cache: true
+
+data <- lapply(names(file_paths), function(name) {
+  readr::read_tsv(file_paths[[name]]) |> dplyr::mutate(release = name)
+}) |> 
+  dplyr::bind_rows()|> 
+  dplyr::filter(study_label == 'GTEx')
+```
+
+
+```{r}
+#| echo: false
+data |> 
+  dplyr::distinct() |> 
+  dplyr::group_by(study_id, pmid, release) |> 
+  dplyr::summarise(n = n(), .groups = "drop") |>
+  dplyr::arrange(study_id, pmid, release) |>
+  gt::gt() |>
+  gt::tab_header("Number of GTEx studies in releases")
+```
+
+The notion of a single Gentropy `study_id` is a concatenation of multiple values.
+The `dataset_id` on the other hand represents a single row in the data_tables.
+This is almost a proxy of a single `study_id`, but differs between the two 
+
+Below you can see the number of `dataset_id(s)` that are repeated in both releases and addition of v10
+
+```{r}
+#| echo: false
+
+dataset_id_counts <- data |>
+  dplyr::group_by(dataset_id) |>
+  dplyr::summarise(count = n())
+  
+single_release_ids <-  dataset_id_counts |> 
+    dplyr::filter(count == 1) |> dplyr::pull(dataset_id)
+
+single_release_datasets <- data |>
+  dplyr::filter(dataset_id %in% single_release_ids) |>
+  dplyr::select(dataset_id, release)
+
+dataset_id_counts_with_releases <- dataset_id_counts |>
+  left_join(single_release_datasets, by = "dataset_id") |>
+  dplyr::mutate(
+    count = factor(count),
+    release = dplyr::case_when(
+      count == 2 ~ "both",
+      count == 1 ~ release,
+      .default = as.character(count)
+    )
+  )
+  
+  
+ggplot2::ggplot(
+  data = dataset_id_counts_with_releases, 
+  mapping = ggplot2::aes(count, fill = release)
+) + 
+  ggplot2::geom_bar(color = "black", linewidth = 0.5) + 
+  ggplot2::theme_minimal()
+
+  
+```
+
+
+### Comparison of the datasets
+
+```{r}
+#| echo: false
+
+sample_sizes_per_release_common_ds <- data |> 
+  dplyr::filter(!dataset_id %in% single_release_ids) |>
+  dplyr::mutate(
+    release = dplyr::case_when(
+      release == "upcoming" ~ "upcoming(both)",
+      release == "original" ~ "original(both)"
+    )
+  ) |>
+  dplyr::union_all(data |> 
+    dplyr::filter(dataset_id %in% single_release_ids))
+
+ggplot2::ggplot(
+  data = sample_sizes_per_release_common_ds,
+  mapping = ggplot2::aes(x = release, y = sample_size)) +
+  ggplot2::geom_boxplot(alpha = 0.7) +
+  ggplot2::stat_summary(
+    fun = max, 
+    geom = "text", 
+    mapping = ggplot2::aes(label = ggplot2::after_stat(y)),
+    vjust = -0.5, color = "red", size = 3, fontface = "bold") +
+  ggplot2::stat_summary(
+    fun = min, 
+    geom = "text", 
+    mapping = ggplot2::aes(label = ggplot2::after_stat(y)),
+    vjust = 1.5, color = "blue", size = 3, fontface = "bold") +
+  ggplot2::stat_summary(
+    fun = median, 
+    geom = "text", 
+    mapping = ggplot2::aes(label = ggplot2::after_stat(y)),
+     vjust = -0.5, color = "darkgreen", size = 3, fontface = "bold") +
+  ggplot2::labs(
+    title = "Sample Sizes by Release Type",
+    x = "Release",
+    y = "Sample Size"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+Based on the data from both releases it looks like, the `upcoming` release has relatively larger `sample_size` in all datasets.
+
+The `both` - common datasets in both releases are different only in the `sample_size`.
+
+::: {.callout-note collapse="true"}
+### Check exact differences
+```{r}
+#| echo: false
+# show example data rows that have the same study_id and dataset_id
+data |> 
+  dplyr::filter(!dataset_id %in% single_release_ids) |>
+  dplyr::arrange(dataset_id) |>
+  gt::gt() |> 
+  gt::tab_style(
+    style = cell_fill(color = "lightyellow"),
+    locations = cells_body(columns = sample_size)
+  )
+```
+:::
+
+### quantification method
+
+The new `upcoming` datasets are introducing the new `quant_method` - **majiq**
+
+```{r}
+#| echo: false
+
+
+data |> 
+  dplyr::filter(!dataset_id %in% single_release_ids) |>
+  dplyr::mutate(
+    release = dplyr::case_when(
+      release == "upcoming" ~ "upcoming(both)",
+      release == "original" ~ "original(both)"
+    )
+  ) |>
+  dplyr::union_all(data |> 
+    dplyr::filter(dataset_id %in% single_release_ids)) |>
+  dplyr::group_by(quant_method, release) |>
+  dplyr::summarise(cnt = n(), .groups = "drop") |> 
+  dplyr::arrange(release, quant_method) |>
+  gt::gt() |>  
+  gt::tab_style(
+    style = cell_fill(color = "lightyellow"),
+    locations = cells_body(rows = quant_method == "majiq")
+  )
+
+```
+  
+### Single-cell vs bulk
+
+All new datasets are from bulk sequencing.
+
+```{r}
+#| echo: false
+
+
+data |> 
+  dplyr::filter(!dataset_id %in% single_release_ids) |>
+  dplyr::mutate(
+    release = dplyr::case_when(
+      release == "upcoming" ~ "upcoming(both)",
+      release == "original" ~ "original(both)"
+    )
+  ) |>
+  dplyr::union_all(data |> 
+    dplyr::filter(dataset_id %in% single_release_ids)) |>
+  dplyr::group_by(study_type, release) |>
+  dplyr::summarise(cnt = n(), .groups = "drop") |> 
+  dplyr::arrange(release, study_type) |>
+  gt::gt() |>  
+  gt::tab_style(
+    style = cell_fill(color = "lightyellow"),
+    locations = cells_body(rows = release == "upcoming")
+  )
+
+```
+  
+
+## Population assignments
+
+Below is the population assignment from [population_assignment file](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/population_assignments.tsv)
+
+```{r}
+#| echo: false
+#| message: false
+
+pops = readr::read_tsv("https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/refs/heads/master/data_tables/population_assignments.tsv") |>
+  dplyr::filter(Study == "GTEx")
+
+pops |>
+  gt::gt() |> 
+  gt::tab_style(
+    style = cell_fill(color = "lightyellow"),
+    locations = cells_body(rows = Study == "GTEx")
+  )
+
+```
+
+Note: the file is not updated and seem to represent **total number of participants**, which
+does not match the `sample_size` numbers in the individual datasets, **thus it can not be used
+to infer the LD population structure.**
+
+
+## Summary
+
+With update we should expect to:
+- Deprecate 245 studies
+- Introduce 294 (245 old + 49 new) studies with increased sample_size
+- New 49 studies are introducing new quantification method - **majiq**
+
+
+
+

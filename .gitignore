@@ -1,0 +1,19 @@
+# Quarto
+/.quarto/
+/_site/
+/*_cache/
+/*_files/
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# OS
+.DS_Store
+Thumbs.db
+
+# renv libraries
+renv/library/
+renv/staging/
