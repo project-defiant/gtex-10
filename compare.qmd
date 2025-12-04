@@ -1,6 +1,6 @@
 ---
 title: "GTEx comparison"
-format: html
+format: revealjs
 execute:
   message: false
   warning: false
@@ -16,28 +16,31 @@ library(googleCloudStorageR)
 library(gt)
 library(tidyr)
 library(ggplot2)
-```
+library(tidyr)
+library(dbplyr)
+library(tibble)
+library(ggpubr)
+library(scales)
 
+my_colors_p1 <- c("#2a5d34", "#d6a941")
+my_colors_p2 <- c("#8b9faaff", "#2a5d34", "#d6a941")
+```
 
 This analysis compares the [eQTL Catalogue resources](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources)
 
-The goal is to check what has changed between original release (used by the platform) and 
-newly updated data from GTEx v10.
+The goal is to check what has changed between original release (used by the platform) and newly updated data from GTEx v10.
 
 ## Datasets
 
-- data_tables
-  - [original](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata.tsv)
-  - [upcomming](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata_upcoming.tsv)
-  
-  
+-   data_tables
+    -   [original](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata.tsv)
+    -   [upcomming](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources/blob/master/data_tables/dataset_metadata_upcoming.tsv)
+
 ## Data loading
 
 The analysis loads dataset tables from the `data_tables` mentioned above.
 
-Note that *eQTL Catalogue* uses slightly different notion of a `study`, which
-corresponds to a single `pubmed id`
-
+Note that *eQTL Catalogue* uses slightly different notion of a `study`, which corresponds to a single `pubmed id`
 
 ```{r}
 #| echo: false
@@ -60,7 +63,6 @@ data <- lapply(names(file_paths), function(name) {
   dplyr::filter(study_label == 'GTEx')
 ```
 
-
 ```{r}
 #| echo: false
 data |> 
@@ -72,9 +74,9 @@ data |>
   gt::tab_header("Number of GTEx studies in releases")
 ```
 
-The notion of a single Gentropy `study_id` is a concatenation of multiple values.
-The `dataset_id` on the other hand represents a single row in the data_tables.
-This is almost a proxy of a single `study_id`, but differs between the two 
+The notion of a single Gentropy `study_id` is a concatenation of multiple values. The `dataset_id` on the other hand represents a single row in the data_tables. This is almost a proxy of a single `study_id`, but differs between the two
+
+## What's new?
 
 Below you can see the number of `dataset_id(s)` that are repeated in both releases and addition of v10
 
@@ -113,7 +115,6 @@ ggplot2::ggplot(
 
   
 ```
-
 
 ### Comparison of the datasets
 
@@ -168,6 +169,7 @@ The `both` - common datasets in both releases are different only in the `sample_
 
 ::: {.callout-note collapse="true"}
 ### Check exact differences
+
 ```{r}
 #| echo: false
 # show example data rows that have the same study_id and dataset_id
@@ -210,7 +212,7 @@ data |>
   )
 
 ```
-  
+
 ### Single-cell vs bulk
 
 All new datasets are from bulk sequencing.
@@ -239,7 +241,6 @@ data |>
   )
 
 ```
-  
 
 ## Population assignments
 
@@ -261,18 +262,184 @@ pops |>
 
 ```
 
-Note: the file is not updated and seem to represent **total number of participants**, which
-does not match the `sample_size` numbers in the individual datasets, **thus it can not be used
-to infer the LD population structure.**
-
+Note: the file is not updated and seem to represent **total number of participants**, which does not match the `sample_size` numbers in the individual datasets, **thus it can not be used to infer the LD population structure.**
 
 ## Summary
 
 With update we should expect to:
-- Deprecate 245 studies
-- Introduce 294 (245 old + 49 new) studies with increased sample_size
-- New 49 studies are introducing new quantification method - **majiq**
+
+-   Deprecate 245 studies (GTEx v8)
+-   Introduce 294 (245 old + 49 new) studies with increased sample_size
+-   New 49 studies are introducing new quantification method - **majiq**
+
+## Post ingestion checks
+
+-   Ingestion done with nextflow PoC on google cloud
+
+```{r}
+#| echo: false
+#| message: false
+#| cache: true
+
+#
+## LOAD TABLES ##
+#
+DB_PATH <- '/Users/ss60/data/GTEx-comparison/gtex-comparison.db'
+
+con <- duckdb::dbConnect(duckdb::duckdb(), dbdir = DB_PATH)
+table_names <- duckdb::sql_query("SHOW TABLES;", con)
+
+stats <- dplyr::tbl(con, "gtex_stats") |>
+  dplyr::collect() |>
+  dplyr::mutate(
+    label = dplyr::case_when(
+      surplus != "+0.0%" ~
+        stringr::str_glue("{number}\n({surplus})"),
+      TRUE ~ number
+    )
+  )
+
+variant_counts <- dplyr::tbl(con, "gtex_variant_count") |>
+  dplyr::collect() |>
+  dplyr::mutate(
+    label = dplyr::case_when(
+      surplus != "+0.0%" ~
+        stringr::str_glue("{number}\n({surplus})"),
+      TRUE ~ number
+    )
+  )
+
+variant_per_release <- dplyr::tbl(con, "gtex_variant_overlap") |>
+  dplyr::collect() |>
+  dplyr::mutate(
+    release = purrr::map_chr(releases, function(r) {
+      if (length(r) == 2) {
+        return("both")
+      }
+      stringr::str_interp("${r}-only")
+    })
+  ) |>
+  dplyr::mutate(number = format(cnt, big.mark = ",", scientific = FALSE)) |>
+  dplyr::select(release, number, cnt)
 
 
 
 
+sample_size <- dplyr::tbl(con, "gtex_sample_size") |>
+  dplyr::collect() |>
+  dplyr::mutate(
+    avg = as.integer(avg),
+    std = as.integer(std),
+    min = as.integer(min),
+    max = as.integer(max),
+    q25 = as.integer(q25),
+    q50 = as.integer(q50),
+    q75 = as.integer(q75),
+  )
+
+```
+
+```{r}
+#| echo: false
+
+p1 = ggplot2::ggplot(
+  data = stats,
+  mapping = ggplot2::aes(x = dataset, y = cnt, fill = release)
+) +
+  ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.9)) +
+  ggplot2::theme_minimal() +
+  ggplot2::scale_fill_manual(values = my_colors_p1) +
+  ggplot2::theme(
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    legend.position = "none"
+  ) +
+  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::geom_text(
+    aes(label = label),
+    vjust = 1.2,
+    size = 4,
+    fontface = "bold",
+    color = 'white',
+    position = ggplot2::position_dodge(width = 0.9)
+  ) +
+  ggplot2::ggtitle("Numbers of studies/credible sets")
+
+
+
+p2 <- ggplot2::ggplot(
+  data = variant_counts,
+  mapping = ggplot2::aes(y = cnt, x = release, fill = release)
+) +
+  ggplot2::geom_col() +
+  ggplot2::theme_minimal() +
+  ggplot2::scale_fill_manual(values = my_colors_p1) +
+  ggplot2::theme(
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    legend.position = "none"
+  ) +
+  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::geom_text(
+    aes(label = label),
+    vjust = 1.5,
+    size = 4,
+    fontface = "bold",
+    color = 'white',
+  ) +
+
+  ggplot2::ggtitle("Total # variantIds")
+
+p3 <- ggplot2::ggplot(
+  data = variant_per_release,
+  mapping = ggplot2::aes(y = cnt, x = release, fill = release)
+) +
+  ggplot2::geom_col() +
+  ggplot2::theme_minimal() +
+  ggplot2::scale_fill_manual(values = my_colors_p2) +
+  ggplot2::theme(axis.text.y = element_text(angle = 90, hjust = 0.5)) +
+  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::xlab("overlap") +
+  ggplot2::geom_text(
+    aes(label = number),
+    vjust = 1.5,
+    size = 4,
+    fontface = "bold",
+    color = 'white',
+  ) +
+  ggplot2::ggtitle("Overlapping/non-overlapping # variantIds")
+
+library(patchwork)
+
+p4 = (p1 / (p2 | p3)) 
+p4
+```
+
+## SampleSize
+
+```{r}
+#| echo: false
+#| 
+p5 <- ggplot2::ggplot(
+  data = sample_size,
+  mapping = ggplot2::aes(
+    x = release,
+    ymin = min,
+    lower = q25,
+    middle = q50,
+    upper = q75,
+    max = max
+  )
+) +
+  ggplot2::geom_boxplot(stat = "identity") +
+  ggplot2::labs(
+    title = "Sample Sizes by Release Type",
+    x = "Release",
+    y = "Sample Size"
+  ) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(hjust = 1)
+  )
+
+p5
+
+```
