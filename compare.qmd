@@ -1,6 +1,6 @@
 ---
 title: "GTEx comparison"
-format: revealjs
+format: markdown_github
 execute:
   message: false
   warning: false
@@ -22,8 +22,8 @@ library(tibble)
 library(ggpubr)
 library(scales)
 
-my_colors_p1 <- c("#2a5d34", "#d6a941")
-my_colors_p2 <- c("#8b9faaff", "#2a5d34", "#d6a941")
+my_colors_p1 <- c("#2291d1ff", "#0d4581ff")
+my_colors_p2 <- c("#8b9faaff", "#2291d1ff", "#0d4581ff")
 ```
 
 This analysis compares the [eQTL Catalogue resources](https://github.com/eQTL-Catalogue/eQTL-Catalogue-resources)
@@ -350,19 +350,18 @@ p1 = ggplot2::ggplot(
   ggplot2::theme_minimal() +
   ggplot2::scale_fill_manual(values = my_colors_p1) +
   ggplot2::theme(
-    axis.text.y = element_text(angle = 90, hjust = 0.5),
-    legend.position = "none"
+    axis.text.y = element_text(angle = 0, hjust = 0.5),
   ) +
-  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
   ggplot2::geom_text(
     aes(label = label),
     vjust = 1.2,
-    size = 4,
+    size = 3.5,
     fontface = "bold",
     color = 'white',
     position = ggplot2::position_dodge(width = 0.9)
   ) +
-  ggplot2::ggtitle("Numbers of studies/credible sets")
+  ggplot2::ggtitle("no. of studies/credible sets")
 
 
 
@@ -374,19 +373,19 @@ p2 <- ggplot2::ggplot(
   ggplot2::theme_minimal() +
   ggplot2::scale_fill_manual(values = my_colors_p1) +
   ggplot2::theme(
-    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    axis.text.y = element_text(angle = 0, hjust = 0.5),
     legend.position = "none"
   ) +
-  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
   ggplot2::geom_text(
     aes(label = label),
     vjust = 1.5,
-    size = 4,
+    size = 3.5,
     fontface = "bold",
     color = 'white',
   ) +
 
-  ggplot2::ggtitle("Total # variantIds")
+  ggplot2::ggtitle("Total no. of variants")
 
 p3 <- ggplot2::ggplot(
   data = variant_per_release,
@@ -395,51 +394,49 @@ p3 <- ggplot2::ggplot(
   ggplot2::geom_col() +
   ggplot2::theme_minimal() +
   ggplot2::scale_fill_manual(values = my_colors_p2) +
-  ggplot2::theme(axis.text.y = element_text(angle = 90, hjust = 0.5)) +
-  ggplot2::scale_y_continuous(labels = scales::label_scientific()) +
+  ggplot2::theme(axis.text.y = element_text(angle = 0, hjust = 0.5)) +
+  ggplot2::scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
   ggplot2::xlab("overlap") +
   ggplot2::geom_text(
     aes(label = number),
     vjust = 1.5,
-    size = 4,
+    size = 3,
     fontface = "bold",
     color = 'white',
   ) +
-  ggplot2::ggtitle("Overlapping/non-overlapping # variantIds")
+  ggplot2::ggtitle("no. of overlapping variants")
 
 library(patchwork)
 
-p4 = (p1 / (p2 | p3)) 
+p4 = (p1 / (p2 | p3))
 p4
 ```
-
-## SampleSize
 
 ```{r}
 #| echo: false
 #| 
-p5 <- ggplot2::ggplot(
-  data = sample_size,
-  mapping = ggplot2::aes(
-    x = release,
-    ymin = min,
-    lower = q25,
-    middle = q50,
-    upper = q75,
-    max = max
-  )
-) +
-  ggplot2::geom_boxplot(stat = "identity") +
-  ggplot2::labs(
-    title = "Sample Sizes by Release Type",
-    x = "Release",
-    y = "Sample Size"
-  ) +
-  ggplot2::theme_minimal() +
-  ggplot2::theme(
-    axis.text.x = ggplot2::element_text(hjust = 1)
-  )
+# p5 <- ggplot2::ggplot(
+#   data = sample_size,
+#   mapping = ggplot2::aes(
+#     x = release,
+#     ymin = min,
+#     lower = q25,
+#     middle = q50,
+#     upper = q75,
+#     max = max
+#   )
+# ) +
+#   ggplot2::geom_boxplot(stat = "identity") +
+#   ggplot2::labs(
+#     title = "Sample Sizes by Release Type",
+#     x = "Release",
+#     y = "Sample Size"
+#   ) +
+#   ggplot2::theme_minimal() +
+#   ggplot2::theme(
+#     axis.text.x = ggplot2::element_text(hjust = 1)
+#   )
 
-p5
+# p5
 
 ```
